@@ -133,7 +133,7 @@ def _crawl_directory(
     else:
         ext_set = {e.lower() for e in extensions}
 
-    for dirpath, dirnames, filenames in os.walk(str(root), followlinks=False):
+    for dirpath, dirnames, filenames in os.walk(str(root), followlinks=True):
         dirnames[:] = [d for d in dirnames if not d.startswith(".") and d not in skip_set]
 
         for filename in filenames:
