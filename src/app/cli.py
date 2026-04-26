@@ -170,14 +170,14 @@ def run_consolidate(project_root: Path, force: bool) -> None:
         sys.exit(1)
 
     base_path: Path = Path(config.paths[0]).resolve()
-    destination_root: Path = Path(
-        base_path / config.consolidation.destination
+    destination_path: Path = Path(
+        base_path / config.consolidation_destination
         ).resolve()
 
     try:
         run_consolidation(conn=conn,
                           base_path=base_path,
-                          destination_root=destination_root,
+                          destination_path=destination_path,
                           force=force
                           )
 

@@ -45,6 +45,14 @@ cleanup:
     @uv run src/cleanup.py
     @printf "\n"
 
+# Identify duplicate files to consolidate into a single directory
+[group('app')]
+consolidate:
+    @printf "\n"
+    @printf "\033[0;34m=== Consolidate Duplicates ===\033[0m\n"
+    @uv run src/consolidate.py
+    @printf "\n"
+
 # Interactively select and permanently delete duplicate files (no trash)
 [group('app')]
 cleanup-force:

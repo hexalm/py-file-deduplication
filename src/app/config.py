@@ -26,6 +26,7 @@ class ScannerConfig:
     recursive: bool
     skip_dirs: list[str]
     database: str
+    consolidation_destination: str
 
 
 def load_config(config_path: Path) -> ScannerConfig:
@@ -69,6 +70,7 @@ def load_config(config_path: Path) -> ScannerConfig:
         recursive=data["recursive"],
         skip_dirs=skip_dirs,
         database=str(data["database"]),
+        consolidation_destination=str(data.get("consolidation_destination", None))
     )
 
 

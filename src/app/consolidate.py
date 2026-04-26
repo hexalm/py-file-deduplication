@@ -7,7 +7,7 @@ from collections import defaultdict
 from pathlib import Path, PurePosixPath
 from typing import Any
 from app.database import iter_all_files, iter_hashed_files_with_id
-from app.cleanup import DuplicateFile
+from app.cleanup import DuplicateFile, build_duplicate_groups
 
 """Interactive duplicate folder cleanup for raw-deduplicator_v2.
 
@@ -42,197 +42,191 @@ with last-copy safety protection.
 """
 
 
-# def build_duplicate_groups(conn: sqlite3.Connection) -> dict[str, list[DuplicateFile]]:
-#     """Build duplicate groups from hashed files in the database.
-#
-#     Groups files by (file_size, md5_hash, sha256_hash). Only groups with
-#     2 or more files are returned. Prints progress while scanning.
-#
-#     Args:
-#         conn: An open SQLite connection to the files database.
-#
-#     Returns:
-#         A dict mapping group keys to lists of DuplicateFile objects.
-#         Only groups with 2+ files are included.
-#     """
-#     total: int = count_hashed_files(conn)
-#     index: dict[str, list[DuplicateFile]] = defaultdict(list)
-#
-#     cursor: sqlite3.Cursor = iter_hashed_files_with_id(conn)
-#     for current, row in enumerate(cursor, start=1):
-#         file_id: int = row[0]
-#         file_size: int = row[1]
-#         md5_hash: str = row[2]
-#         sha256_hash: str = row[3]
-#         rel_path: str = row[4]
-#
-#         key: str = f"{file_size}_{md5_hash}_{sha256_hash}"
-#         folder: str = str(PurePosixPath(rel_path).parent)
-#
-#         index[key].append(
-#             DuplicateFile(
-#                 file_id=file_id,
-#                 rel_path=rel_path,
-#                 file_size=file_size,
-#                 group_key=key,
-#                 folder=folder,
-#             )
-#         )
-#
-#         if current % 10000 == 0 or current == total:
-#             print(f"  [{current}/{total}] Grouping files by hash ...", end="\r")
-#
-#     if total > 0:
-#         print()
-#
-#     duplicate_groups: dict[str, list[DuplicateFile]] = {k: v for k, v in index.items() if len(v) > 1}
-#     duplicate_count: int = sum(len(v) for v in duplicate_groups.values())
-#     print(f"  {duplicate_count} duplicate files in {len(duplicate_groups)} groups")
-#
-#     return duplicate_groups
-
-
-def get_non_dupes_to_copy():
-
-    return []
-
-
-#todo: use something like this to decide what needs NOT be copied
-#all other scanned files in Onedrive/google will need to be copied to proton
-def get_dupes_not_in_dest(
+def get_duplicate_groups_by_status(
+    destination_root: Path,
     duplicate_groups: dict[str, list[DuplicateFile]],
-    destination_root: str,
-) -> list[str]:
-    """Determine which duplicate files to copy from source based on presence in destination.
+) -> (dict[str, list[DuplicateFile]], dict[str, list[DuplicateFile]]):
 
-    For each duplicate group, files in source folders are marked for
-    copy if not present in destination. If multiple copies exist in source folders, the
-    alphabetically first copy is picked.
+    duplicates_not_in_destination: dict[str, list[DuplicateFile]] = dict()
+    duplicates_in_destination: dict[str, list[DuplicateFile]] = dict()
 
-    Args:
-        duplicate_groups: Dict mapping group keys to lists of DuplicateFile.
-        destination_root: String denoting root of destination path.
+    for group, files in duplicate_groups.items():
+        if [f for f in files if f.folder.startswith(str(destination_root))]:
+            duplicates_in_destination.update({group: files})
+        else:
+            duplicates_not_in_destination.update({group: files})
 
-    Returns:
-        A list of duplicate files to copy to destination.
-    """
-    # copies: list[FileCopy] = [] #TODO - ?
-    copies: list[str] = []
-
-    #triage files in sources vs destination
-    for files in duplicate_groups.values():
-        #todo: path check is probs wrong, use helper?
-        in_destination = list[DuplicateFile] = [f for f in files if f.folder.startswith(str(destination_root))]
-        in_source =  list[DuplicateFile] = [f for f in files if not f.folder.startswith(str(destination_root))]
-        if size(in_destination) == 0 and in_source:
-            sorted_files: list[DuplicateFile] = sorted(in_selected, key=lambda f: f.rel_path)
-            copies.append(sorted_files[0])
-
-    # probably handle plan info - file count, total bytes - in caller
-    return copies
+    return (duplicates_in_destination, duplicates_not_in_destination)
 
 
-def build_copy_groups(
-    conn: sqlite3.Connection,
-    source_files: list[str],
-) -> dict[str, list[DuplicateFile]]:
-    """Build duplicate groups from hashed files in the database.
-
-    Groups files by (file_size, md5_hash, sha256_hash). Only groups with
-    2 or more files are returned. Prints progress while scanning.
-
-    Args:
-        conn: An open SQLite connection to the files database.
-
-    Returns:
-        A dict mapping group keys to lists of DuplicateFile objects.
-        Only groups with 2+ files are included.
-    """
-
-    # total: int = count_hashed_files(conn)
-    index: dict[str, list[DuplicateFile]] = defaultdict(list)
-
-    cursor: sqlite3.Cursor = iter_hashed_files_with_id(conn)
-    for current, row in enumerate(cursor, start=1):
-        file_id: int = row[0]
-        file_size: int = row[1]
-        md5_hash: str = row[2]
-        sha256_hash: str = row[3]
-        rel_path: str = row[4]
-
-        key: str = f"{file_size}_{md5_hash}_{sha256_hash}"
-        folder: str = str(PurePosixPath(rel_path).parent)
-
-        index[key].append(
-            DuplicateFile(
-                file_id=file_id,
-                rel_path=rel_path,
-                file_size=file_size,
-                group_key=key,
-                folder=folder,
-            )
-        )
-
-        if current % 10000 == 0 or current == total:
-            print(f"  [{current}/{total}] Grouping files by hash ...", end="\r")
-
-    if total > 0:
-        print()
-
-    duplicate_groups: dict[str, list[DuplicateFile]] = {k: v for k, v in index.items() if len(v) > 1}
-    duplicate_count: int = sum(len(v) for v in duplicate_groups.values())
-    print(f"  {duplicate_count} duplicate files in {len(duplicate_groups)} groups")
-
-    return duplicate_groups
-
-
-def plan_copies(
+def get_files_to_copy(
     scanned_files: list[str],
     duplicate_groups: dict[str, list[DuplicateFile]],
     destination_root: str,
-):
-#) -> CopyPlan:
-    #get list of source files - all not in destination
+) -> list[str]:
+    # get list of source files - all not in destination
     # eg     # files_to_copy = {
     #     all scanned_files NOT in destination (full scan)
     #     AND not in "in_destination" list
     # }
+    # print(f"<<<get_files_to_copy - destination_root: {destination_root}>>>")
 
-    source_files = [f for f in scanned_files if not f.startswith(str(destination_root))]
-
-    # non_dupes_to_copy = {
-    #     all source_files NOT in duplicate_groups
-    #     AND not in destination (use helper)
-    # }
-
-    dupes_to_copy = get_dupes_not_in_dest(
-        duplicate_groups,
+    duplicates_in_destination, duplicates_not_in_destination = get_duplicate_groups_by_status(
         destination_root,
+        duplicate_groups
     )
 
-    files_to_copy = [] #union of dupes_to_copy + non_dupes_to_copy
+    # all source files
+    source_files = [f for f in scanned_files if not
+                    f.startswith(str(destination_root))]
 
-    return files_to_copy
+    source_dupes_all = set([
+        f.rel_path
+        for df in duplicates_not_in_destination.values()
+        for f in df
+    ])
+
+    # first of each duplicate group with no dupes in destination
+    dupes_to_copy = [
+        sorted([f.rel_path for f in d])[0]
+        # d[0]
+        for k, d in duplicates_not_in_destination.items()
+    ]
+
+    print(f"Duplicates to copy: {len(dupes_to_copy)}")
+
+    # non-duplicated source files we must copy
+    non_dupes_to_copy = set(source_files) - source_dupes_all
+
+    files_to_copy = set(dupes_to_copy).union(set(non_dupes_to_copy))
+
+    return (list(files_to_copy), duplicates_in_destination)
+
+
+@dataclasses.dataclass(frozen=True)
+class CopyPlan:
+    """Details for planning a copy operation.
+
+    Attributes:
+        source_path: path to copy from
+        destination_path: path to copy to
+    """
+
+    source_path: str
+    destination_path: str
+
+
+def get_copy_destination(
+    destination_parent: str,
+    source_path: str,
+    destination_files: list[str]
+) -> str:
+
+    path = Path(source_path)
+    # start by substituting the root folder
+    # print(f">>> {path}")
+    # print(f"=== {destination_parent}")
+    naive_target = Path(destination_parent) / Path('/'.join(path.parts[1:]))
+    # naive_target = Path(destination_parent) / Path('/'.join(path.parent.parts[1:]))
+    new_target = None
+    # get a different name if necessary
+    has_conflict = True if source_path in destination_files else False
+    i = 1
+    while has_conflict:
+        new_target = Path(naive_target.parent).joinpath(
+            naive_target.stem + f" ({i})" + naive_target.suffix
+        )
+
+        has_conflict = True if new_target in destination_files else False
+        i += 1
+
+    if not new_target:
+        new_target = naive_target
+
+    return str(new_target)
+
+
+def plan_copies(
+    destination_root: str,
+    base_path: str,
+    files_to_copy: list[str],
+    destination_files: list[str],
+) -> list[CopyPlan]:
+
+    copies: list[CopyPlan] = []
+    for f in files_to_copy:
+        dest = get_copy_destination(
+            destination_root,
+            f,
+            destination_files
+        )
+        copies.append(CopyPlan(f, dest))
+
+    return copies
+
+
+def plan_deletes(
+    duplicates_in_destination: dict[str, list[DuplicateFile]]
+) -> list[str]:
+
+    print(f"Groups: {len(duplicates_in_destination)}")
+    files_to_delete = [
+        file_path
+        for duplicate_group in duplicates_in_destination.values()
+        for file_path in sorted(r.rel_path for r in duplicate_group)[1:]
+    ]
+    # print(f"To delete: {len(files_to_delete)}")
+    # files_to_keep = [
+    #     sorted(r.rel_path for r in duplicate_group)[0]
+    #     for duplicate_group in duplicates_in_destination.values()
+    # ]
+    # print(f"To keep: {len(files_to_keep)} == grp count: {len(files_to_keep)==len(duplicates_in_destination)}")
+
+    return files_to_delete
 
 
 def run_consolidation(
     conn: sqlite3.Connection,
     base_path: Path,
-    destination_root: Path,
+    destination_path: Path,
     force: bool,
 ) -> None:
 
+    destination_parent: str = str(destination_path.relative_to(base_path))
+    print(f"Looking for files to copy from:\n  {base_path}\n\t(except in" +
+          f"{destination_parent})\nto: {destination_parent}...\n")
+
     cursor: sqlite3.Cursor = iter_all_files(conn)
-    scanned_files = [f.rel_path for f in enumerate(cursor, start=1)]
+    scanned_files = [f[1] for f in cursor]
 
-    source_files = [f for f in scanned_files if not f.startswith(str(destination_root))]
-    # duplicate_groups = build_duplicate_groups(conn)
-    duplicate_groups = build_copy_groups(conn, source_files)
+    duplicate_groups: dict[str, list[DuplicateFile]] = build_duplicate_groups(conn)
 
-    plan_copies(
+    destination_files = [f for f in scanned_files if
+                         f.startswith(str(destination_parent))]
+
+    print(f"Scanned files: {len(scanned_files)}")
+    print(f"Duplicate groups: {len(duplicate_groups)}")
+    print(f"Destination files: {len(destination_files)}")
+
+    #todo: not this
+    to_copy, duplicates_in_destination = get_files_to_copy(
         scanned_files,
         duplicate_groups,
-        destination_root,
+        destination_parent,
     )
 
+    print(f"Files to copy: {len(to_copy)}")
+    print(f"Duplicate groups in destination: {len(duplicates_in_destination)}")
+
+    copy_plans = plan_copies(destination_parent, base_path, to_copy, destination_files)
+
+    print(f"Copy plans: {len(copy_plans)}\n")
+    for copy_plan in copy_plans: #[0:9]:
+        print(copy_plan)
+
+    to_delete = plan_deletes(duplicates_in_destination)
+    print(f"Destination duplicates to delete: {len(to_delete)}")
+    # clean up destination dupes only
+    print(f"Destination initial count: {len(destination_files)}")
+    print(f"Expected destination final count: {len(to_copy) + len(destination_files) - len(to_delete)}")
 

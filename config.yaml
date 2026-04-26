@@ -5,8 +5,7 @@
 paths:
   - "/home/behexed/dedupe-test/test_fs/messy"
 
-consolidation:
-  destination: "folder3"
+consolidation_destination: "folder3"
 
 # File extensions to look for (must include the dot)
 extensions:
