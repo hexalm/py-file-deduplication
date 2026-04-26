@@ -73,3 +73,5 @@ reports/
 
 # UV lock file (can be added to git if desired)
 # uv.lock
+
+*.kate-swp
