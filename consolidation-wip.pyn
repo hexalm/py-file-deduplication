@@ -1,0 +1,350 @@
+"""Interactive duplicate folder cleanup for raw-deduplicator_v2.
+
+Analyzes duplicate files by folder, provides an interactive TUI for
+selecting which folders' duplicates to remove, and executes deletion
+with last-copy safety protection.
+"""
+
+import collections.abc
+import dataclasses
+import shutil
+import sqlite3
+import sys
+from collections import defaultdict
+from pathlib import Path, PurePosixPath
+from typing import Any
+
+from app.database import count_hashed_files, delete_files, iter_hashed_files_with_id
+
+_GB: int = 1024**3
+_MB: int = 1024**2
+_KB: int = 1024
+
+"""
+# Plan:
+
+## Get inputs
+
+1. Destination root
+2. Dest dupes
+3. Source files (all files not under dest)
+4. dupes where 
+  - versions exist in source
+  - no versions exist in dest
+
+### Copy list
+
+* all source_files
+* exclude if a version exists in destination
+* if dupe, select alpha first for copy
+* if not dupe, assume should be copied
+
+"""
+
+def iter_all_files(conn: sqlite3.Connection) -> sqlite3.Cursor:
+    """Return a cursor over all file records.
+
+    Yields rows as (id, rel_path) for every file in the database.
+
+    Args:
+        conn: An open SQLite connection.
+
+    Returns:
+        A cursor iterating over (id, rel_path) tuples.
+    """
+    return conn.execute("SELECT id, rel_path FROM files ORDER BY id")
+
+def _resolve_config_and_db(project_root: Path) -> tuple[ScannerConfig, sqlite3.Connection, Path]:
+    """Load config and open the database connection.
+
+    Args:
+        project_root: Absolute path to the project root directory.
+
+    Returns:
+        A tuple of (config, db_connection, resolved_db_path).
+    """
+    config_path: Path = project_root / "config.yaml"
+    config: ScannerConfig = load_config(config_path)
+
+    db_path: Path = Path(config.database)
+    if not db_path.is_absolute():
+        db_path = project_root / db_path
+
+    conn: sqlite3.Connection = open_database(db_path)
+    return config, conn, db_path
+
+# def run_scan(project_root: Path) -> None:
+#     """Run the file scanning pass.
+
+#     Loads config, opens the database, crawls configured directories,
+#     and inserts discovered files into the database.
+
+#     Args:
+#         project_root: Absolute path to the project root directory.
+#     """
+#     config, conn, db_path = _resolve_config_and_db(project_root)
+#     print(f"Database: {db_path}")
+#     print("")
+
+#     try:
+#         scan_files(config=config, conn=conn)
+#     finally:
+#         conn.close()
+
+#TODO - helper
+# def is_file_in_dest() -> bool:
+
+def build_duplicate_groups(conn: sqlite3.Connection) -> dict[str, list[DuplicateFile]]:
+    """Build duplicate groups from hashed files in the database.
+
+    Groups files by (file_size, md5_hash, sha256_hash). Only groups with
+    2 or more files are returned. Prints progress while scanning.
+
+    Args:
+        conn: An open SQLite connection to the files database.
+
+    Returns:
+        A dict mapping group keys to lists of DuplicateFile objects.
+        Only groups with 2+ files are included.
+    """
+    total: int = count_hashed_files(conn)
+    index: dict[str, list[DuplicateFile]] = defaultdict(list)
+
+    cursor: sqlite3.Cursor = iter_hashed_files_with_id(conn)
+    for current, row in enumerate(cursor, start=1):
+        file_id: int = row[0]
+        file_size: int = row[1]
+        md5_hash: str = row[2]
+        sha256_hash: str = row[3]
+        rel_path: str = row[4]
+
+        key: str = f"{file_size}_{md5_hash}_{sha256_hash}"
+        folder: str = str(PurePosixPath(rel_path).parent)
+
+        index[key].append(
+            DuplicateFile(
+                file_id=file_id,
+                rel_path=rel_path,
+                file_size=file_size,
+                group_key=key,
+                folder=folder,
+            )
+        )
+
+        if current % 10000 == 0 or current == total:
+            print(f"  [{current}/{total}] Grouping files by hash ...", end="\r")
+
+    if total > 0:
+        print()
+
+    duplicate_groups: dict[str, list[DuplicateFile]] = {k: v for k, v in index.items() if len(v) > 1}
+    duplicate_count: int = sum(len(v) for v in duplicate_groups.values())
+    print(f"  {duplicate_count} duplicate files in {len(duplicate_groups)} groups")
+
+    return duplicate_groups
+
+def build_copy_groups(
+    conn: sqlite3.Connection,
+    source_files: list[str],
+) -> dict[str, list[DuplicateFile]]:
+    """Build duplicate groups from hashed files in the database.
+
+    Groups files by (file_size, md5_hash, sha256_hash). Only groups with
+    2 or more files are returned. Prints progress while scanning.
+
+    Args:
+        conn: An open SQLite connection to the files database.
+
+    Returns:
+        A dict mapping group keys to lists of DuplicateFile objects.
+        Only groups with 2+ files are included.
+    """
+    total: int = count_hashed_files(conn)
+    index: dict[str, list[DuplicateFile]] = defaultdict(list)
+
+    cursor: sqlite3.Cursor = iter_hashed_files_with_id(conn)
+    for current, row in enumerate(cursor, start=1):
+        file_id: int = row[0]
+        file_size: int = row[1]
+        md5_hash: str = row[2]
+        sha256_hash: str = row[3]
+        rel_path: str = row[4]
+
+        key: str = f"{file_size}_{md5_hash}_{sha256_hash}"
+        folder: str = str(PurePosixPath(rel_path).parent)
+
+        index[key].append(
+            DuplicateFile(
+                file_id=file_id,
+                rel_path=rel_path,
+                file_size=file_size,
+                group_key=key,
+                folder=folder,
+            )
+        )
+
+        if current % 10000 == 0 or current == total:
+            print(f"  [{current}/{total}] Grouping files by hash ...", end="\r")
+
+    if total > 0:
+        print()
+
+    duplicate_groups: dict[str, list[DuplicateFile]] = {k: v for k, v in index.items() if len(v) > 1}
+    duplicate_count: int = sum(len(v) for v in duplicate_groups.values())
+    print(f"  {duplicate_count} duplicate files in {len(duplicate_groups)} groups")
+
+    return duplicate_groups
+
+def init(
+    project_root: Path, 
+    destination_root: str = "ProtonDrive",
+):
+    config, conn, db_path = _resolve_config_and_db(project_root)
+    print(f"Database: {db_path}")
+    print("")
+    #TODO: dest from config
+
+    cursor: sqlite3.Cursor = iter_all_files(conn)
+    scanned_files = [f.rel_path for f in enumerate(cursor, start=1)]
+    
+    source_files = [f for f in scanned_files if not f.startswith(destination_root)]
+    # duplicate_groups = build_duplicate_groups(conn)
+    duplicate_groups = build_copy_groups(conn, source_files)
+
+    plan_copies(
+        scanned_files,
+        duplicate_groups,
+        destination_root,
+    )
+
+
+def plan_copies(
+    scanned_files: list[str],
+    duplicate_groups: dict[str, list[DuplicateFile]],
+    destination_root: str,
+):
+#) -> CopyPlan:
+    #get list of source files - all not in destination
+    # eg     # files_to_copy = {
+    #     all scanned_files NOT in destination (full scan)
+    #     AND not in "in_destination" list
+    # }
+
+    source_files = [f for f in scanned_files if not f.startswith(destination_root)]
+
+    # non_dupes_to_copy = {
+    #     all source_files NOT in duplicate_groups
+    #     AND not in destination (use helper)
+    # }
+
+    dupes_to_copy = get_dupes_not_in_dest(
+        duplicate_groups,
+        destination_root,        
+    )
+
+    files_to_copy = [] #union of dupes_to_copy + non_dupes_to_copy
+    
+    return None
+
+
+def get_non_dupes_to_copy:
+
+    return []
+
+
+#todo: use something like this to decide what needs NOT be copied
+#all other scanned files in Onedrive/google will need to be copied to proton
+def get_dupes_not_in_dest(
+    duplicate_groups: dict[str, list[DuplicateFile]],
+    destination_root: str,
+) -> list[str]:
+#DeletionPlan:
+    """Determine which duplicate files to copy from source based on presence in destination.
+
+    For each duplicate group, files in source folders are marked for
+    copy if not present in destination. If multiple copies exist in source folders, the
+    alphabetically first copy is picked.
+
+    Args:
+        duplicate_groups: Dict mapping group keys to lists of DuplicateFile.
+        destination_root: String denoting root of destination path.
+
+    Returns:
+        A list of duplicate files to copy to destination. 
+    """
+    # copies: list[FileCopy] = [] #TODO - ?
+    copies: list[str] = []
+
+    #triage files in sources vs destination
+    for files in duplicate_groups.values():
+        #todo: path check is probs wrong, use helper?
+        in_destination = list[DuplicateFile] = [f for f in files if f.folder.startswith(destination_root)]
+        in_source =  list[DuplicateFile] = [f for f in files if not f.folder.startswith(destination_root)]
+        if size(in_destination) == 0 and in_source:
+            sorted_files: list[DuplicateFile] = sorted(in_selected, key=lambda f: f.rel_path)
+            copies.append(sorted_files[0])
+
+    # probably handle plan info - file count, total bytes - in caller
+    return copies
+
+# def plan_deletions(
+#     selected_folders: list[str],
+#     duplicate_groups: dict[str, list[DuplicateFile]],
+# ) -> DeletionPlan:
+#     """Plan which files to delete based on selected folders.
+
+#     For each duplicate group, files in selected folders are marked for
+#     deletion. If ALL copies of a group are in selected folders, the
+#     alphabetically first copy is protected (last-copy safety).
+
+#     Args:
+#         selected_folders: List of folder names selected for cleanup.
+#         duplicate_groups: Dict mapping group keys to lists of DuplicateFile.
+
+#     Returns:
+#         A DeletionPlan with files to delete, protected paths, and total bytes.
+#     """
+#     selected_set: set[str] = set(selected_folders)
+#     deletions: list[FileDeletion] = []
+#     protected_paths: list[str] = []
+
+#     for files in duplicate_groups.values():
+#         in_selected: list[DuplicateFile] = [f for f in files if f.folder in selected_set]
+#         in_safe: list[DuplicateFile] = [f for f in files if f.folder not in selected_set]
+
+#         if not in_selected:
+#             continue
+
+#         if in_safe:
+#             surviving: str = sorted(in_safe, key=lambda f: f.rel_path)[0].rel_path
+#             deletions.extend(
+#                 FileDeletion(
+#                     file_id=dup_file.file_id,
+#                     rel_path=dup_file.rel_path,
+#                     file_size=dup_file.file_size,
+#                     surviving_copy=surviving,
+#                 )
+#                 for dup_file in in_selected
+#             )
+#         else:
+#             sorted_files: list[DuplicateFile] = sorted(in_selected, key=lambda f: f.rel_path)
+#             protected_path: str = sorted_files[0].rel_path
+#             protected_paths.append(protected_path)
+#             deletions.extend(
+#                 FileDeletion(
+#                     file_id=dup_file.file_id,
+#                     rel_path=dup_file.rel_path,
+#                     file_size=dup_file.file_size,
+#                     surviving_copy=protected_path,
+#                 )
+#                 for dup_file in sorted_files[1:]
+#             )
+
+#     total_bytes: int = sum(d.file_size for d in deletions)
+
+#     return DeletionPlan(
+#         deletions=deletions,
+#         protected_paths=protected_paths,
+#         total_bytes=total_bytes,
+#     )
+

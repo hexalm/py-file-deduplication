@@ -5,6 +5,7 @@ import sys
 from pathlib import Path
 
 from app.cleanup import run_cleanup_interactive
+from app.consolidate import run_consolidation
 from app.config import ScannerConfig, load_config
 from app.database import open_database
 from app.duplicates import find_duplicates
@@ -146,5 +147,39 @@ def run_cleanup(project_root: Path, force: bool) -> None:
 
     try:
         run_cleanup_interactive(conn=conn, base_path=base_path, force=force)
+    finally:
+        conn.close()
+
+
+def run_consolidate(project_root: Path, force: bool) -> None:
+    """Run the consolidation workflow.
+
+    Loads config, opens the database, and runs the process to copy unique files
+    to the destination.
+
+    Args:
+        project_root: Absolute path to the project root directory.
+    """
+    config, conn, db_path = _resolve_config_and_db(project_root)
+    print(f"Database: {db_path}")
+    print("")
+
+    if len(config.paths) != 1:
+        print("ERROR: Consolidate requires exactly one scan path to resolve relative paths.", file=sys.stderr)
+        conn.close()
+        sys.exit(1)
+
+    base_path: Path = Path(config.paths[0]).resolve()
+    destination_root: Path = Path(
+        base_path / config.consolidation.destination
+        ).resolve()
+
+    try:
+        run_consolidation(conn=conn,
+                          base_path=base_path,
+                          destination_root=destination_root,
+                          force=force
+                          )
+
     finally:
         conn.close()

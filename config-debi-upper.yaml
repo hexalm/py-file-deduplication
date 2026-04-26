@@ -3,17 +3,19 @@
 
 # Directories to scan for files (absolute paths)
 paths:
-  - "/home/behexed/dedupe-test/test_fs/messy"
-
-consolidation:
-  destination: "folder3"
+  - "/Volumes/WD20TB-2"
 
 # File extensions to look for (must include the dot)
 extensions:
-  - ".txt"
-  - ".md"
-  - ".log"
-  - ".json"
+  - ".CRW"
+  - ".DNG"
+  - ".JPG"
+  - ".TIF"
+  - ".ARW"
+  - ".jpeg"
+  - ".raw"
+  - ".cr2"
+  - ".nef"
 
 # Whether extension matching is case sensitive
 case_sensitive: false
