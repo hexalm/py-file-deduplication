@@ -193,7 +193,7 @@ def run_consolidation(
 ) -> None:
 
     destination_parent: str = str(destination_path.relative_to(base_path))
-    print(f"Looking for files to copy from:\n  {base_path}\n\t(except in" +
+    print(f"Looking for files to copy from:\n  {base_path}\n\t(except in " +
           f"{destination_parent})\nto: {destination_parent}...\n")
 
     cursor: sqlite3.Cursor = iter_all_files(conn)
@@ -221,12 +221,26 @@ def run_consolidation(
     copy_plans = plan_copies(destination_parent, base_path, to_copy, destination_files)
 
     print(f"Copy plans: {len(copy_plans)}\n")
-    for copy_plan in copy_plans: #[0:9]:
+    for copy_plan in copy_plans:
         print(copy_plan)
+
+    # 12 - not a smoking gun but need to explain and compare unique hashes
+    byname = set([Path(cp.destination_path).name for cp in copy_plans])
+    print(f" Unique file names to copy: {len(byname)}")
 
     to_delete = plan_deletes(duplicates_in_destination)
     print(f"Destination duplicates to delete: {len(to_delete)}")
     # clean up destination dupes only
     print(f"Destination initial count: {len(destination_files)}")
+    # seems wrong? of 25 total files we end up with 16 and 16 copy jobs
+    # Init in dest = 7 - delete 7 from dest = 0
+    # + 16 to_copy = 16
+    # but we shouldn't get to 0 in dest unless they are all dupes...
+    #
+    # we have 17 total files, by definition they are all unique (uuids check out)
+    # 12 unique file names to copy + 5 duplicate dest groups = 17
+    # but then that implies 0 non-dupe files in dest
+    # which suggests nothing in there is unique...
+    # that would be a fix on the test file generation side
     print(f"Expected destination final count: {len(to_copy) + len(destination_files) - len(to_delete)}")
 
