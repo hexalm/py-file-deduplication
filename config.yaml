@@ -3,16 +3,13 @@
 
 # Directories to scan for files (absolute paths)
 paths:
-  - "/home/behexed/dedupe-test/test_fs/messy"
+  - "/home/behexed/"
 
 consolidation_destination: "folder3"
 
 # File extensions to look for (must include the dot)
 extensions:
-  - ".txt"
-  - ".md"
-  - ".log"
-  - ".json"
+  - ".*"
 
 # Whether extension matching is case sensitive
 case_sensitive: false
@@ -22,13 +19,43 @@ recursive: true
 
 # Directory names to skip during traversal (exact match on directory name)
 skip_dirs:
-  - ".git"
-  - ".svn"
-  - ".hg"
   - "__pycache__"
-  - "node_modules"
-  - ".venv"
   - "_DELETE"
+  - ".bun"
+  - ".cache"
+  - ".cargo"
+  - ".cups"
+  - ".git"
+  - ".hg"
+  - ".npm"
+  - ".nvm"
+  - ".rustup"
+  - ".svn"
+  - ".venv"
+  - "cache"
+  - "Cache"
+  - "CacheStorage"
+  - "diskimg"
+  - "Games"
+  - "libinput-gestures"
+  - "lutris"
+  - "Mounts"
+  - "node_modules"
+  - "node_modules"
+  - "s3drive_protondrive_j1lv"
+  - "src-tauri"
+  - "trash"
+  - "Trash"
+  - "uv"
+  - "vcpkg"
+  - "waydroid"
+  - "python3.13"
+  - "python3.14"
+
+# skip_patterns: - ""
+
+skip_files:
+  - ".lock"
 
 # Path to the SQLite database file (relative to project root or absolute)
-database: "data/files.db"
+database: "data/home_files.db"
