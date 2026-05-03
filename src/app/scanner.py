@@ -115,8 +115,9 @@ def _crawl_directory(
 ) -> Iterator[Path]:
     """Crawl a directory tree for files matching given extensions.
 
-    Does NOT follow symlinks. Skips directories whose names start
-    with a dot or appear in the skip_dirs list.
+    Does NOT follow symlinks.
+    Skips directories whose names appear in the skip_dirs list.
+    Skips files whose names appear in the skip_files list.
 
     Args:
         root: The resolved root directory to crawl.
@@ -140,7 +141,6 @@ def _crawl_directory(
         ext_set = {e.lower() for e in extensions}
 
     for dirpath, dirnames, filenames in os.walk(str(root), followlinks=False):
-        # dirnames[:] = [d for d in dirnames if not d.startswith(".") and d not in skip_set]
         dirnames[:] = [d for d in dirnames if d not in skip_set]
 
         for filename in filenames:
