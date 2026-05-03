@@ -25,6 +25,7 @@ class ScannerConfig:
     case_sensitive: bool
     recursive: bool
     skip_dirs: list[str]
+    skip_files: list[str]
     database: str
     consolidation_destination: str
 
@@ -62,6 +63,7 @@ def load_config(config_path: Path) -> ScannerConfig:
     paths: list[str] = [str(p) for p in data["paths"]]
     extensions: list[str] = [str(e) for e in data["extensions"]]
     skip_dirs: list[str] = [str(d) for d in data["skip_dirs"]]
+    skip_files: list[str] = [str(d) for d in data["skip_files"]]
 
     return ScannerConfig(
         paths=paths,
@@ -69,6 +71,7 @@ def load_config(config_path: Path) -> ScannerConfig:
         case_sensitive=data["case_sensitive"],
         recursive=data["recursive"],
         skip_dirs=skip_dirs,
+        skip_files=skip_files,
         database=str(data["database"]),
         consolidation_destination=str(data.get("consolidation_destination", None))
     )

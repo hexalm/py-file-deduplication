@@ -55,6 +55,7 @@ def scan_files(config: ScannerConfig, conn: sqlite3.Connection) -> None:
             case_sensitive=config.case_sensitive,
             recursive=config.recursive,
             skip_dirs=config.skip_dirs,
+            skip_files=config.skip_files,
         ):
             parent_rel: str = str(file_path.parent.relative_to(scan_root))
             if parent_rel != current_dir:
@@ -110,6 +111,7 @@ def _crawl_directory(
     case_sensitive: bool,
     recursive: bool,
     skip_dirs: list[str],
+    skip_files: list[str],
 ) -> Iterator[Path]:
     """Crawl a directory tree for files matching given extensions.
 
@@ -129,7 +131,8 @@ def _crawl_directory(
     skip_set: set[str] = set(skip_dirs)
     ext_set: set[str] = set()
     ext_wildcard = False
-    if extensions in [".*", "*"]:
+
+    if len(extensions) == 1 and extensions[0] in [".*", "*"]:
         ext_wildcard = True
     elif case_sensitive:
         ext_set = set(extensions)
@@ -141,15 +144,27 @@ def _crawl_directory(
         dirnames[:] = [d for d in dirnames if d not in skip_set]
 
         for filename in filenames:
+            file_name = filename
+            file_ext: str = os.path.splitext(file_name)[1]
+            if not case_sensitive:
+                file_name = file_name.lower()
+                file_ext = file_ext.lower()
+
+            if file_name in skip_files:
+                continue
+
+            # print(f"[DEBUG] Scan: {filename}")
             # if filename.startswith("."):
             #     continue
-            file_ext: str = os.path.splitext(filename)[1]
             if ext_wildcard:
+                # print(f"[DEBUG] Wildcard")
                 yield Path(dirpath) / filename
-            if not case_sensitive:
-                file_ext = file_ext.lower()
-            if file_ext in ext_set:
-                yield Path(dirpath) / filename
+            else:
+                # print(f"[DEBUG] Wildcard == False")
+                if not case_sensitive:
+                    file_ext = file_ext.lower()
+                if file_ext in ext_set:
+                    yield Path(dirpath) / filename
 
         if not recursive:
             dirnames.clear()
