@@ -88,11 +88,11 @@ def insert_file(
     cursor: sqlite3.Cursor = conn.execute(
         """
         INSERT OR IGNORE INTO files (
-            filename, rel_path, extension, file_size, is_error, is_found, is_included, error_message
+            filename, rel_path, extension, file_size, is_included, is_found, is_error, error_message
         )
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """,
-        (filename, rel_path, extension, file_size),
+        (filename, rel_path, extension, file_size, is_included, is_found, is_error, error_message),
     )
     return cursor.rowcount > 0
 
