@@ -29,22 +29,6 @@ def _create_schema(conn: sqlite3.Connection) -> None:
     Args:
         conn: An open SQLite connection.
     """
-    # new_schema = """
-    #     CREATE TABLE IF NOT EXISTS files (
-    #         id INTEGER PRIMARY KEY AUTOINCREMENT,
-    #         filename TEXT NOT NULL,
-    #         rel_path TEXT NOT NULL UNIQUE,
-    #         extension TEXT NOT NULL,
-    #         md5_hash TEXT,
-    #         sha256_hash TEXT,
-    #         file_size INTEGER NOT NULL,
-    #         hashed_at TEXT,
-            # is_error INTEGER,
-            # is_found INTEGER,
-            # is_included INTEGER,
-            # error_message TEXT
-    #     )
-    # """
     conn.execute("""
         CREATE TABLE IF NOT EXISTS files (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -53,30 +37,34 @@ def _create_schema(conn: sqlite3.Connection) -> None:
             extension TEXT NOT NULL,
             md5_hash TEXT,
             sha256_hash TEXT,
-            file_size INTEGER,
-            hashed_at TEXT
+            file_size INTEGER NOT NULL,
+            hashed_at TEXT,
+            is_error INTEGER,
+            is_found INTEGER,
+            is_included INTEGER,
+            error_message TEXT
         )
     """)
     conn.execute("CREATE INDEX IF NOT EXISTS idx_files_md5_hash ON files (md5_hash)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_files_sha256_hash ON files (sha256_hash)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_files_file_size ON files (file_size)")
-    # conn.execute("CREATE INDEX IF NOT EXISTS idx_files_is_included ON files (is_included)")
-    # conn.execute("CREATE INDEX IF NOT EXISTS idx_files_is_found ON files (is_found)")
-    # conn.execute("CREATE INDEX IF NOT EXISTS idx_files_is_error ON files (is_error)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_files_is_included ON files (is_included)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_files_is_found ON files (is_found)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_files_is_error ON files (is_error)")
     conn.commit()
 
-# TODO: flags:
-#  - is_error, is_found, is_included, error_message
+# TODO: pass in new params
+# TODO: update here too for found, included, error, size? Or as separate op?
 def insert_file(
     conn: sqlite3.Connection,
     filename: str,
     rel_path: str,
     extension: str,
     file_size: int,
-    # is_error: bool,
-    # is_found: bool,
-    # is_included: bool,
-    # error_message: str,
+    is_included: bool,
+    is_found: bool = None,
+    is_error: bool = None,
+    error_message: str = None,
 ) -> bool:
     """Insert a file record into the database if it doesn't already exist.
 
@@ -89,25 +77,21 @@ def insert_file(
         rel_path: The relative path from the scan root (e.g., "subdir/photo.jpg").
         extension: The file extension including dot (e.g., ".jpg").
         file_size: The file size in bytes.
-    # is_error: bool,
-    # is_found: bool,
-    # is_included: bool,
-    # error_message: str,
+        is_included: If file is included for file operations (including hashing).
+        is_found: If file path was found on disk.
+        is_error: If file ops had an error.
+        error_message: Error message, if applicable.
 
     Returns:
         True if the file was inserted, False if it already existed.
     """
     cursor: sqlite3.Cursor = conn.execute(
         """
-        INSERT OR IGNORE INTO files (filename, rel_path, extension, file_size)
-        VALUES (?, ?, ?, ?)
+        INSERT OR IGNORE INTO files (
+            filename, rel_path, extension, file_size, is_error, is_found, is_included, error_message
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """,
-        # """
-        # INSERT OR IGNORE INTO files (
-        #     filename, rel_path, extension, file_size, is_error, is_found, is_included, error_message
-        # )
-        # VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        # """,
         (filename, rel_path, extension, file_size),
     )
     return cursor.rowcount > 0
@@ -123,8 +107,7 @@ def count_total_files(conn: sqlite3.Connection) -> int:
     Returns:
         The total number of file records.
     """
-    cursor: sqlite3.Cursor = conn.execute("SELECT COUNT(*) FROM files")
-    # cursor: sqlite3.Cursor = conn.execute("SELECT COUNT(*) FROM files WHERE is_included = 1")
+    cursor: sqlite3.Cursor = conn.execute("SELECT COUNT(*) FROM files WHERE is_included = 1")
     row: tuple[int] = cursor.fetchone()
     return row[0]
 
@@ -180,14 +163,13 @@ def count_unhashed_files(conn: sqlite3.Connection) -> int:
     Returns:
         The number of file records with NULL md5_hash.
     """
-    cursor: sqlite3.Cursor = conn.execute("SELECT COUNT(*) FROM files WHERE md5_hash IS NULL")
-    # cursor: sqlite3.Cursor = conn.execute("SELECT COUNT(*) FROM files WHERE md5_hash IS NULL AND is_included = 1")
+    cursor: sqlite3.Cursor = conn.execute("SELECT COUNT(*) FROM files WHERE md5_hash IS NULL AND is_included = 1")
     row: tuple[int] = cursor.fetchone()
     return row[0]
 
 
 def count_hashed_files(conn: sqlite3.Connection) -> int:
-    """Count files that have been hashed.
+    """Count included files that have been hashed.
 
     Args:
         conn: An open SQLite connection.
@@ -195,8 +177,10 @@ def count_hashed_files(conn: sqlite3.Connection) -> int:
     Returns:
         The number of file records with non-NULL md5_hash.
     """
-    cursor: sqlite3.Cursor = conn.execute("SELECT COUNT(*) FROM files WHERE md5_hash IS NOT NULL AND sha256_hash IS NOT NULL")
-    # cursor: sqlite3.Cursor = conn.execute("SELECT COUNT(*) FROM files WHERE is_included = 1 AND md5_hash IS NOT NULL AND sha256_hash IS NOT NULL")
+    cursor: sqlite3.Cursor = conn.execute(
+        "SELECT COUNT(*) FROM files WHERE is_included = 1 AND md5_hash IS NOT NULL AND sha256_hash IS NOT NULL"
+        )
+    # cursor: sqlite3.Cursor = conn.execute(
 
     row: tuple[int] = cursor.fetchone()
     return row[0]
@@ -211,13 +195,15 @@ def sum_unhashed_bytes(conn: sqlite3.Connection) -> int:
     Returns:
         The total size in bytes of all files with NULL md5_hash.
     """
-    cursor: sqlite3.Cursor = conn.execute("SELECT COALESCE(SUM(file_size), 0) FROM files WHERE md5_hash IS NULL AND is_included = 1")
+    cursor: sqlite3.Cursor = conn.execute(
+        "SELECT COALESCE(SUM(file_size), 0) FROM files WHERE md5_hash IS NULL AND is_included = 1"
+        )
     row: tuple[int] = cursor.fetchone()
     return row[0]
 
 
 def sum_included_bytes(conn: sqlite3.Connection) -> int:
-    """Sum the total file_size of all unhashed files.
+    """Sum the total file_size of all included files.
 
     Args:
         conn: An open SQLite connection.
@@ -225,13 +211,15 @@ def sum_included_bytes(conn: sqlite3.Connection) -> int:
     Returns:
         The total size in bytes of all files with NULL md5_hash.
     """
-    cursor: sqlite3.Cursor = conn.execute("SELECT COALESCE(SUM(file_size), 0) FROM files WHERE is_included = 1")
+    cursor: sqlite3.Cursor = conn.execute(
+        "SELECT COALESCE(SUM(file_size), 0) FROM files WHERE is_included = 1"
+        )
     row: tuple[int] = cursor.fetchone()
     return row[0]
 
 
 def sum_excluded_bytes(conn: sqlite3.Connection) -> int:
-    """Sum the total file_size of all unhashed files.
+    """Sum the total file_size of all excluded files.
 
     Args:
         conn: An open SQLite connection.
@@ -239,7 +227,9 @@ def sum_excluded_bytes(conn: sqlite3.Connection) -> int:
     Returns:
         The total size in bytes of all files with NULL md5_hash.
     """
-    cursor: sqlite3.Cursor = conn.execute("SELECT COALESCE(SUM(file_size), 0) FROM files WHERE is_included = 0")
+    cursor: sqlite3.Cursor = conn.execute(
+        "SELECT COALESCE(SUM(file_size), 0) FROM files WHERE is_included = 0"
+        )
     row: tuple[int] = cursor.fetchone()
     return row[0]
 
@@ -256,8 +246,9 @@ def iter_unhashed_files(conn: sqlite3.Connection) -> sqlite3.Cursor:
     Returns:
         A cursor iterating over (id, rel_path, file_size) tuples.
     """
-    # return conn.execute("SELECT id, rel_path, file_size FROM files WHERE md5_hash IS NULL AND is_included = 1 ORDER BY id")
-    return conn.execute("SELECT id, rel_path, file_size FROM files WHERE md5_hash IS NULL ORDER BY id")
+    return conn.execute(
+        "SELECT id, rel_path, file_size FROM files WHERE md5_hash IS NULL AND is_included = 1 ORDER BY id"
+        )
 
 
 def update_hashes(
@@ -298,8 +289,7 @@ def iter_all_files(conn: sqlite3.Connection) -> sqlite3.Cursor:
     Returns:
         A cursor iterating over (id, rel_path) tuples.
     """
-    return conn.execute("SELECT id, rel_path FROM files ORDER BY id")
-    # return conn.execute("SELECT id, rel_path FROM files WHERE is_included = 1 ORDER BY id")
+    return conn.execute("SELECT id, rel_path FROM files WHERE is_included = 1 ORDER BY id")
 
 
 #TODO: all files even if not is_included
@@ -354,7 +344,7 @@ def iter_hashed_files_with_id(conn: sqlite3.Connection) -> sqlite3.Cursor:
         "ORDER BY file_size DESC"
     )
 
-
+#TODO: make configurable?
 _SQLITE_VARIABLE_LIMIT: int = 500
 
 
