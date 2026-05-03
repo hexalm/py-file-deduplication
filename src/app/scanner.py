@@ -134,11 +134,12 @@ def _crawl_directory(
         ext_set = {e.lower() for e in extensions}
 
     for dirpath, dirnames, filenames in os.walk(str(root), followlinks=False):
-        dirnames[:] = [d for d in dirnames if not d.startswith(".") and d not in skip_set]
+        # dirnames[:] = [d for d in dirnames if not d.startswith(".") and d not in skip_set]
+        dirnames[:] = [d for d in dirnames if d not in skip_set]
 
         for filename in filenames:
-            if filename.startswith("."):
-                continue
+            # if filename.startswith("."):
+            #     continue
             file_ext: str = os.path.splitext(filename)[1]
             if not case_sensitive:
                 file_ext = file_ext.lower()
