@@ -29,6 +29,22 @@ def _create_schema(conn: sqlite3.Connection) -> None:
     Args:
         conn: An open SQLite connection.
     """
+    # new_schema = """
+    #     CREATE TABLE IF NOT EXISTS files (
+    #         id INTEGER PRIMARY KEY AUTOINCREMENT,
+    #         filename TEXT NOT NULL,
+    #         rel_path TEXT NOT NULL UNIQUE,
+    #         extension TEXT NOT NULL,
+    #         md5_hash TEXT,
+    #         sha256_hash TEXT,
+    #         file_size INTEGER NOT NULL,
+    #         hashed_at TEXT,
+            # is_error INTEGER,
+            # is_found INTEGER,
+            # is_included INTEGER,
+            # error_message TEXT
+    #     )
+    # """
     conn.execute("""
         CREATE TABLE IF NOT EXISTS files (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -37,22 +53,30 @@ def _create_schema(conn: sqlite3.Connection) -> None:
             extension TEXT NOT NULL,
             md5_hash TEXT,
             sha256_hash TEXT,
-            file_size INTEGER NOT NULL,
+            file_size INTEGER,
             hashed_at TEXT
         )
     """)
     conn.execute("CREATE INDEX IF NOT EXISTS idx_files_md5_hash ON files (md5_hash)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_files_sha256_hash ON files (sha256_hash)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_files_file_size ON files (file_size)")
+    # conn.execute("CREATE INDEX IF NOT EXISTS idx_files_is_included ON files (is_included)")
+    # conn.execute("CREATE INDEX IF NOT EXISTS idx_files_is_found ON files (is_found)")
+    # conn.execute("CREATE INDEX IF NOT EXISTS idx_files_is_error ON files (is_error)")
     conn.commit()
 
-
+# TODO: flags:
+#  - is_error, is_found, is_included, error_message
 def insert_file(
     conn: sqlite3.Connection,
     filename: str,
     rel_path: str,
     extension: str,
     file_size: int,
+    # is_error: bool,
+    # is_found: bool,
+    # is_included: bool,
+    # error_message: str,
 ) -> bool:
     """Insert a file record into the database if it doesn't already exist.
 
@@ -65,6 +89,10 @@ def insert_file(
         rel_path: The relative path from the scan root (e.g., "subdir/photo.jpg").
         extension: The file extension including dot (e.g., ".jpg").
         file_size: The file size in bytes.
+    # is_error: bool,
+    # is_found: bool,
+    # is_included: bool,
+    # error_message: str,
 
     Returns:
         True if the file was inserted, False if it already existed.
@@ -74,12 +102,48 @@ def insert_file(
         INSERT OR IGNORE INTO files (filename, rel_path, extension, file_size)
         VALUES (?, ?, ?, ?)
         """,
+        # """
+        # INSERT OR IGNORE INTO files (
+        #     filename, rel_path, extension, file_size, is_error, is_found, is_included, error_message
+        # )
+        # VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        # """,
         (filename, rel_path, extension, file_size),
     )
     return cursor.rowcount > 0
 
 
+# TODO: name fixes
 def count_total_files(conn: sqlite3.Connection) -> int:
+    """Count the total number of files in the database.
+
+    Args:
+        conn: An open SQLite connection.
+
+    Returns:
+        The total number of file records.
+    """
+    cursor: sqlite3.Cursor = conn.execute("SELECT COUNT(*) FROM files")
+    # cursor: sqlite3.Cursor = conn.execute("SELECT COUNT(*) FROM files WHERE is_included = 1")
+    row: tuple[int] = cursor.fetchone()
+    return row[0]
+
+
+def count_excluded_files(conn: sqlite3.Connection) -> int:
+    """Count the total number of excluded files in the database.
+
+    Args:
+        conn: An open SQLite connection.
+
+    Returns:
+        The total number of file records.
+    """
+    cursor: sqlite3.Cursor = conn.execute("SELECT COUNT(*) FROM files WHERE is_included = 0")
+    row: tuple[int] = cursor.fetchone()
+    return row[0]
+
+
+def count_total_files_all(conn: sqlite3.Connection) -> int:
     """Count the total number of files in the database.
 
     Args:
@@ -93,8 +157,22 @@ def count_total_files(conn: sqlite3.Connection) -> int:
     return row[0]
 
 
+def count_notfound_files(conn: sqlite3.Connection) -> int:
+    """Count the total number of files in the database.
+
+    Args:
+        conn: An open SQLite connection.
+
+    Returns:
+        The total number of file records.
+    """
+    cursor: sqlite3.Cursor = conn.execute("SELECT COUNT(*) FROM files WHERE is_found = 0")
+    row: tuple[int] = cursor.fetchone()
+    return row[0]
+
+
 def count_unhashed_files(conn: sqlite3.Connection) -> int:
-    """Count files that have not yet been hashed.
+    """Count included files that have not yet been hashed.
 
     Args:
         conn: An open SQLite connection.
@@ -103,6 +181,7 @@ def count_unhashed_files(conn: sqlite3.Connection) -> int:
         The number of file records with NULL md5_hash.
     """
     cursor: sqlite3.Cursor = conn.execute("SELECT COUNT(*) FROM files WHERE md5_hash IS NULL")
+    # cursor: sqlite3.Cursor = conn.execute("SELECT COUNT(*) FROM files WHERE md5_hash IS NULL AND is_included = 1")
     row: tuple[int] = cursor.fetchone()
     return row[0]
 
@@ -117,11 +196,27 @@ def count_hashed_files(conn: sqlite3.Connection) -> int:
         The number of file records with non-NULL md5_hash.
     """
     cursor: sqlite3.Cursor = conn.execute("SELECT COUNT(*) FROM files WHERE md5_hash IS NOT NULL AND sha256_hash IS NOT NULL")
+    # cursor: sqlite3.Cursor = conn.execute("SELECT COUNT(*) FROM files WHERE is_included = 1 AND md5_hash IS NOT NULL AND sha256_hash IS NOT NULL")
+
     row: tuple[int] = cursor.fetchone()
     return row[0]
 
 
 def sum_unhashed_bytes(conn: sqlite3.Connection) -> int:
+    """Sum the total file_size of all included, unhashed files.
+
+    Args:
+        conn: An open SQLite connection.
+
+    Returns:
+        The total size in bytes of all files with NULL md5_hash.
+    """
+    cursor: sqlite3.Cursor = conn.execute("SELECT COALESCE(SUM(file_size), 0) FROM files WHERE md5_hash IS NULL AND is_included = 1")
+    row: tuple[int] = cursor.fetchone()
+    return row[0]
+
+
+def sum_included_bytes(conn: sqlite3.Connection) -> int:
     """Sum the total file_size of all unhashed files.
 
     Args:
@@ -130,13 +225,27 @@ def sum_unhashed_bytes(conn: sqlite3.Connection) -> int:
     Returns:
         The total size in bytes of all files with NULL md5_hash.
     """
-    cursor: sqlite3.Cursor = conn.execute("SELECT COALESCE(SUM(file_size), 0) FROM files WHERE md5_hash IS NULL")
+    cursor: sqlite3.Cursor = conn.execute("SELECT COALESCE(SUM(file_size), 0) FROM files WHERE is_included = 1")
+    row: tuple[int] = cursor.fetchone()
+    return row[0]
+
+
+def sum_excluded_bytes(conn: sqlite3.Connection) -> int:
+    """Sum the total file_size of all unhashed files.
+
+    Args:
+        conn: An open SQLite connection.
+
+    Returns:
+        The total size in bytes of all files with NULL md5_hash.
+    """
+    cursor: sqlite3.Cursor = conn.execute("SELECT COALESCE(SUM(file_size), 0) FROM files WHERE is_included = 0")
     row: tuple[int] = cursor.fetchone()
     return row[0]
 
 
 def iter_unhashed_files(conn: sqlite3.Connection) -> sqlite3.Cursor:
-    """Return a cursor over all unhashed file records.
+    """Return a cursor over all unhashed, included file records.
 
     Yields rows as (id, rel_path, file_size) for files that have not
     yet been hashed (md5_hash IS NULL).
@@ -147,6 +256,7 @@ def iter_unhashed_files(conn: sqlite3.Connection) -> sqlite3.Cursor:
     Returns:
         A cursor iterating over (id, rel_path, file_size) tuples.
     """
+    # return conn.execute("SELECT id, rel_path, file_size FROM files WHERE md5_hash IS NULL AND is_included = 1 ORDER BY id")
     return conn.execute("SELECT id, rel_path, file_size FROM files WHERE md5_hash IS NULL ORDER BY id")
 
 
@@ -176,7 +286,24 @@ def update_hashes(
     )
 
 
+#TODO: refactor to more accurate name
 def iter_all_files(conn: sqlite3.Connection) -> sqlite3.Cursor:
+    """Return a cursor over all file records.
+
+    Yields rows as (id, rel_path) for every file in the database.
+
+    Args:
+        conn: An open SQLite connection.
+
+    Returns:
+        A cursor iterating over (id, rel_path) tuples.
+    """
+    return conn.execute("SELECT id, rel_path FROM files ORDER BY id")
+    # return conn.execute("SELECT id, rel_path FROM files WHERE is_included = 1 ORDER BY id")
+
+
+#TODO: all files even if not is_included
+def iter_all_all_files(conn: sqlite3.Connection) -> sqlite3.Cursor:
     """Return a cursor over all file records.
 
     Yields rows as (id, rel_path) for every file in the database.
