@@ -127,9 +127,12 @@ def _crawl_directory(
         Absolute Path objects for each matching file.
     """
     skip_set: set[str] = set(skip_dirs)
-
-    if case_sensitive:
-        ext_set: set[str] = set(extensions)
+    ext_set: set[str] = set()
+    ext_wildcard = False
+    if extensions in [".*", "*"]:
+        ext_wildcard = True
+    elif case_sensitive:
+        ext_set = set(extensions)
     else:
         ext_set = {e.lower() for e in extensions}
 
@@ -141,6 +144,8 @@ def _crawl_directory(
             # if filename.startswith("."):
             #     continue
             file_ext: str = os.path.splitext(filename)[1]
+            if ext_wildcard:
+                yield Path(dirpath) / filename
             if not case_sensitive:
                 file_ext = file_ext.lower()
             if file_ext in ext_set:
