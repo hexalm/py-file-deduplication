@@ -18,7 +18,17 @@ from app.database import insert_file, open_database, update_hashes
 
 def _insert_hashed_file(conn, filename, rel_path, extension, file_size, md5_hash, sha256_hash):
     """Helper to insert a file and immediately set its hashes."""
-    insert_file(conn, filename, rel_path, extension, file_size)
+    insert_file(
+        conn,
+        filename,
+        rel_path,
+        extension,
+        file_size,
+        # is_included=is_included,
+        # is_found=is_found,
+        # is_error=is_error,
+        # error_message==error_message,
+    )
     conn.commit()
     cursor = conn.execute("SELECT id FROM files WHERE rel_path = ?", (rel_path,))
     file_id = cursor.fetchone()[0]

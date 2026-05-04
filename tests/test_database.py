@@ -58,20 +58,32 @@ class TestInsertFile:
             rel_path="subdir/photo.jpg",
             extension=".jpg",
             file_size=1024,
+            is_included=1,
+            # is_found,
+            # is_error,
+            # error_message,
         )
 
         assert result is True
 
     def test_returns_false_for_duplicate_rel_path(self, db_conn):
-        insert_file(db_conn, "photo.jpg", "subdir/photo.jpg", ".jpg", 1024)
+        insert_file(db_conn, "photo.jpg", "subdir/photo.jpg", ".jpg", 1024, is_included=1,
+            # is_found,
+            # is_error,
+            # error_message,
+            )
         db_conn.commit()
 
-        result = insert_file(db_conn, "photo.jpg", "subdir/photo.jpg", ".jpg", 1024)
+        result = insert_file(db_conn, "photo.jpg", "subdir/photo.jpg", ".jpg", 1024, is_included=1)
 
         assert result is False
 
     def test_stores_correct_values(self, db_conn):
-        insert_file(db_conn, "photo.jpg", "subdir/photo.jpg", ".jpg", 2048)
+        insert_file(db_conn, "photo.jpg", "subdir/photo.jpg", ".jpg", 2048, is_included=1,
+            # is_found,
+            # is_error,
+            # error_message,
+            )
         db_conn.commit()
 
         cursor = db_conn.execute("SELECT id, filename, rel_path, extension, md5_hash, sha256_hash, file_size, hashed_at FROM files")
@@ -87,8 +99,8 @@ class TestInsertFile:
         assert row[7] is None  # hashed_at not yet set
 
     def test_autoincrement_ids(self, db_conn):
-        insert_file(db_conn, "a.jpg", "a.jpg", ".jpg", 100)
-        insert_file(db_conn, "b.jpg", "b.jpg", ".jpg", 200)
+        insert_file(db_conn, "a.jpg", "a.jpg", ".jpg", 100, is_included=1)
+        insert_file(db_conn, "b.jpg", "b.jpg", ".jpg", 200, is_included=1)
         db_conn.commit()
 
         cursor = db_conn.execute("SELECT id FROM files ORDER BY id")
@@ -102,22 +114,22 @@ class TestCountFunctions:
         assert count_total_files(db_conn) == 0
 
     def test_count_total_files_with_data(self, db_conn):
-        insert_file(db_conn, "a.jpg", "a.jpg", ".jpg", 100)
-        insert_file(db_conn, "b.jpg", "b.jpg", ".jpg", 200)
+        insert_file(db_conn, "a.jpg", "a.jpg", ".jpg", 100, is_included=1)
+        insert_file(db_conn, "b.jpg", "b.jpg", ".jpg", 200, is_included=1)
         db_conn.commit()
 
         assert count_total_files(db_conn) == 2
 
     def test_count_unhashed_files_all_unhashed(self, db_conn):
-        insert_file(db_conn, "a.jpg", "a.jpg", ".jpg", 100)
-        insert_file(db_conn, "b.jpg", "b.jpg", ".jpg", 200)
+        insert_file(db_conn, "a.jpg", "a.jpg", ".jpg", 100, is_included=1)
+        insert_file(db_conn, "b.jpg", "b.jpg", ".jpg", 200, is_included=1)
         db_conn.commit()
 
         assert count_unhashed_files(db_conn) == 2
 
     def test_count_unhashed_files_some_hashed(self, db_conn):
-        insert_file(db_conn, "a.jpg", "a.jpg", ".jpg", 100)
-        insert_file(db_conn, "b.jpg", "b.jpg", ".jpg", 200)
+        insert_file(db_conn, "a.jpg", "a.jpg", ".jpg", 100, is_included=1)
+        insert_file(db_conn, "b.jpg", "b.jpg", ".jpg", 200, is_included=1)
         db_conn.commit()
 
         update_hashes(db_conn, 1, "md5abc", "sha256abc", "2026-01-01T00:00:00Z")
@@ -128,9 +140,9 @@ class TestCountFunctions:
 
 class TestIterUnhashedFiles:
     def test_returns_only_unhashed(self, db_conn):
-        insert_file(db_conn, "a.jpg", "a.jpg", ".jpg", 100)
-        insert_file(db_conn, "b.jpg", "b.jpg", ".jpg", 200)
-        insert_file(db_conn, "c.jpg", "c.jpg", ".jpg", 300)
+        insert_file(db_conn, "a.jpg", "a.jpg", ".jpg", 100, is_included=1)
+        insert_file(db_conn, "b.jpg", "b.jpg", ".jpg", 200, is_included=1)
+        insert_file(db_conn, "c.jpg", "c.jpg", ".jpg", 300, is_included=1)
         db_conn.commit()
 
         update_hashes(db_conn, 2, "md5b", "sha256b", "2026-01-01T00:00:00Z")
@@ -144,7 +156,7 @@ class TestIterUnhashedFiles:
         assert rows[1] == (3, "c.jpg", 300)
 
     def test_returns_empty_when_all_hashed(self, db_conn):
-        insert_file(db_conn, "a.jpg", "a.jpg", ".jpg", 100)
+        insert_file(db_conn, "a.jpg", "a.jpg", ".jpg", 100, is_included=1)
         db_conn.commit()
 
         update_hashes(db_conn, 1, "md5a", "sha256a", "2026-01-01T00:00:00Z")
@@ -156,9 +168,9 @@ class TestIterUnhashedFiles:
         assert len(rows) == 0
 
     def test_ordered_by_id(self, db_conn):
-        insert_file(db_conn, "c.jpg", "c.jpg", ".jpg", 300)
-        insert_file(db_conn, "a.jpg", "a.jpg", ".jpg", 100)
-        insert_file(db_conn, "b.jpg", "b.jpg", ".jpg", 200)
+        insert_file(db_conn, "c.jpg", "c.jpg", ".jpg", 300, is_included=1)
+        insert_file(db_conn, "a.jpg", "a.jpg", ".jpg", 100, is_included=1)
+        insert_file(db_conn, "b.jpg", "b.jpg", ".jpg", 200, is_included=1)
         db_conn.commit()
 
         cursor = iter_unhashed_files(db_conn)
@@ -169,7 +181,7 @@ class TestIterUnhashedFiles:
 
 class TestUpdateHashes:
     def test_updates_hash_columns(self, db_conn):
-        insert_file(db_conn, "a.jpg", "a.jpg", ".jpg", 100)
+        insert_file(db_conn, "a.jpg", "a.jpg", ".jpg", 100, is_included=1)
         db_conn.commit()
 
         update_hashes(db_conn, 1, "md5hex", "sha256hex", "2026-02-16T12:00:00Z")
@@ -185,8 +197,8 @@ class TestUpdateHashes:
 
 class TestIterAllFiles:
     def test_returns_all_files(self, db_conn):
-        insert_file(db_conn, "a.jpg", "a.jpg", ".jpg", 100)
-        insert_file(db_conn, "b.jpg", "subdir/b.jpg", ".jpg", 200)
+        insert_file(db_conn, "a.jpg", "a.jpg", ".jpg", 100, is_included=1)
+        insert_file(db_conn, "b.jpg", "subdir/b.jpg", ".jpg", 200, is_included=1)
         db_conn.commit()
 
         cursor = iter_all_files(db_conn)
@@ -203,9 +215,9 @@ class TestIterAllFiles:
         assert len(rows) == 0
 
     def test_ordered_by_id(self, db_conn):
-        insert_file(db_conn, "c.jpg", "c.jpg", ".jpg", 300)
-        insert_file(db_conn, "a.jpg", "a.jpg", ".jpg", 100)
-        insert_file(db_conn, "b.jpg", "b.jpg", ".jpg", 200)
+        insert_file(db_conn, "c.jpg", "c.jpg", ".jpg", 300, is_included=1)
+        insert_file(db_conn, "a.jpg", "a.jpg", ".jpg", 100, is_included=1)
+        insert_file(db_conn, "b.jpg", "b.jpg", ".jpg", 200, is_included=1)
         db_conn.commit()
 
         cursor = iter_all_files(db_conn)
@@ -216,9 +228,9 @@ class TestIterAllFiles:
 
 class TestIterHashedFiles:
     def test_returns_only_hashed(self, db_conn):
-        insert_file(db_conn, "a.jpg", "a.jpg", ".jpg", 100)
-        insert_file(db_conn, "b.jpg", "b.jpg", ".jpg", 200)
-        insert_file(db_conn, "c.jpg", "c.jpg", ".jpg", 300)
+        insert_file(db_conn, "a.jpg", "a.jpg", ".jpg", 100, is_included=1)
+        insert_file(db_conn, "b.jpg", "b.jpg", ".jpg", 200, is_included=1)
+        insert_file(db_conn, "c.jpg", "c.jpg", ".jpg", 300, is_included=1)
         db_conn.commit()
 
         update_hashes(db_conn, 1, "md5a", "sha256a", "2026-01-01T00:00:00Z")
@@ -234,7 +246,7 @@ class TestIterHashedFiles:
         assert rows[1] == (100, "md5a", "sha256a", "a.jpg")
 
     def test_returns_empty_when_none_hashed(self, db_conn):
-        insert_file(db_conn, "a.jpg", "a.jpg", ".jpg", 100)
+        insert_file(db_conn, "a.jpg", "a.jpg", ".jpg", 100, is_included=1)
         db_conn.commit()
 
         cursor = iter_hashed_files(db_conn)
@@ -243,8 +255,8 @@ class TestIterHashedFiles:
         assert len(rows) == 0
 
     def test_returns_all_when_all_hashed(self, db_conn):
-        insert_file(db_conn, "a.jpg", "a.jpg", ".jpg", 100)
-        insert_file(db_conn, "b.jpg", "b.jpg", ".jpg", 200)
+        insert_file(db_conn, "a.jpg", "a.jpg", ".jpg", 100, is_included=1)
+        insert_file(db_conn, "b.jpg", "b.jpg", ".jpg", 200, is_included=1)
         db_conn.commit()
 
         update_hashes(db_conn, 1, "md5a", "sha256a", "2026-01-01T00:00:00Z")
@@ -259,9 +271,9 @@ class TestIterHashedFiles:
 
 class TestDeleteFiles:
     def test_deletes_specified_files(self, db_conn):
-        insert_file(db_conn, "a.jpg", "a.jpg", ".jpg", 100)
-        insert_file(db_conn, "b.jpg", "b.jpg", ".jpg", 200)
-        insert_file(db_conn, "c.jpg", "c.jpg", ".jpg", 300)
+        insert_file(db_conn, "a.jpg", "a.jpg", ".jpg", 100, 1)
+        insert_file(db_conn, "b.jpg", "b.jpg", ".jpg", 200, 1)
+        insert_file(db_conn, "c.jpg", "c.jpg", ".jpg", 300, 1)
         db_conn.commit()
 
         deleted = delete_files(db_conn, [1, 3])
@@ -275,7 +287,7 @@ class TestDeleteFiles:
         assert remaining == [2]
 
     def test_returns_zero_for_empty_list(self, db_conn):
-        insert_file(db_conn, "a.jpg", "a.jpg", ".jpg", 100)
+        insert_file(db_conn, "a.jpg", "a.jpg", ".jpg", 100, is_included=1)
         db_conn.commit()
 
         deleted = delete_files(db_conn, [])
@@ -284,8 +296,8 @@ class TestDeleteFiles:
         assert count_total_files(db_conn) == 1
 
     def test_deletes_single_file(self, db_conn):
-        insert_file(db_conn, "a.jpg", "a.jpg", ".jpg", 100)
-        insert_file(db_conn, "b.jpg", "b.jpg", ".jpg", 200)
+        insert_file(db_conn, "a.jpg", "a.jpg", ".jpg", 100, is_included=1)
+        insert_file(db_conn, "b.jpg", "b.jpg", ".jpg", 200, is_included=1)
         db_conn.commit()
 
         deleted = delete_files(db_conn, [2])
@@ -297,8 +309,8 @@ class TestDeleteFiles:
 
 class TestIterHashedFilesWithId:
     def test_returns_id_and_hashed_fields(self, db_conn):
-        insert_file(db_conn, "a.jpg", "a.jpg", ".jpg", 100)
-        insert_file(db_conn, "b.jpg", "b.jpg", ".jpg", 200)
+        insert_file(db_conn, "a.jpg", "a.jpg", ".jpg", 100, is_included=1)
+        insert_file(db_conn, "b.jpg", "b.jpg", ".jpg", 200, is_included=1)
         db_conn.commit()
 
         update_hashes(db_conn, 1, "md5a", "sha256a", "2026-01-01T00:00:00Z")
@@ -314,8 +326,8 @@ class TestIterHashedFilesWithId:
         assert rows[1] == (1, 100, "md5a", "sha256a", "a.jpg")
 
     def test_excludes_unhashed(self, db_conn):
-        insert_file(db_conn, "a.jpg", "a.jpg", ".jpg", 100)
-        insert_file(db_conn, "b.jpg", "b.jpg", ".jpg", 200)
+        insert_file(db_conn, "a.jpg", "a.jpg", ".jpg", 100, is_included=1)
+        insert_file(db_conn, "b.jpg", "b.jpg", ".jpg", 200, is_included=1)
         db_conn.commit()
 
         update_hashes(db_conn, 1, "md5a", "sha256a", "2026-01-01T00:00:00Z")

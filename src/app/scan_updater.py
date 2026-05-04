@@ -8,6 +8,7 @@ confirmation.
 import sqlite3
 from pathlib import Path
 
+# from app.config import FileResult
 from app.database import count_total_files, delete_files, iter_all_files
 
 

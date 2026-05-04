@@ -7,11 +7,42 @@ extensions, and inserts them into the SQLite database.
 import os
 import sqlite3
 import sys
+import dataclasses
+
 from collections.abc import Iterator
 from pathlib import Path
 
 from app.config import ScannerConfig
-from app.database import count_total_files, insert_file
+from app.database import count_total_files, insert_file, insert_file_record, FileRecord
+
+
+@dataclasses.dataclass(frozen=True)
+class FileResult:
+    path: Path
+    file_name: str
+    rel_path: str
+    extension: str
+    file_size: int | None
+    is_included: bool
+    is_found: bool | None
+
+
+def convert_to_record(
+    file_result: FileResult,
+    file_size: int = None,
+    extension: str = None,
+    error_message: str = None,
+) -> FileRecord:
+
+    size = file_size if file_size else file_result.file_size
+    ext = extension if file_size else file_result.extension
+    return FileRecord(
+        **{k: v for k, v in file_result.__dict__.items() if k not in ['extension', 'file_size', 'is_error', 'error_message']},
+        file_size=size,
+        extension=ext,
+        is_error=error_message is not None,
+        error_message=error_message,
+    )
 
 
 def scan_files(config: ScannerConfig, conn: sqlite3.Connection) -> None:
@@ -49,7 +80,7 @@ def scan_files(config: ScannerConfig, conn: sqlite3.Connection) -> None:
         skipped: int = 0
         current_dir: str = ""
 
-        for file_path in _crawl_directory(
+        for file_result in _crawl_directory(
             root=scan_root,
             extensions=config.extensions,
             case_sensitive=config.case_sensitive,
@@ -57,6 +88,8 @@ def scan_files(config: ScannerConfig, conn: sqlite3.Connection) -> None:
             skip_dirs=config.skip_dirs,
             skip_files=config.skip_files,
         ):
+            error_message: str = None
+            file_path: str = file_result.path
             parent_rel: str = str(file_path.parent.relative_to(scan_root))
             if parent_rel != current_dir:
                 current_dir = parent_rel
@@ -65,8 +98,6 @@ def scan_files(config: ScannerConfig, conn: sqlite3.Connection) -> None:
                 print(f"[{found} files found] Scanning ... {display_dir}")
                 sys.stdout.flush()
 
-            rel_path: str = str(file_path.relative_to(scan_root))
-            filename: str = file_path.name
             extension: str = file_path.suffix
             if not config.case_sensitive:
                 extension = extension.lower()
@@ -74,16 +105,18 @@ def scan_files(config: ScannerConfig, conn: sqlite3.Connection) -> None:
             try:
                 file_size: int = file_path.stat().st_size
             except OSError as err:
+                error_message = str(err)
                 print(f"  WARNING: Could not stat {file_path}: {err}")
                 total_errors = total_errors + 1
-                continue
 
-            was_inserted: bool = insert_file(
+            was_inserted: bool = insert_file_record(
                 conn=conn,
-                filename=filename,
-                rel_path=rel_path,
-                extension=extension,
-                file_size=file_size,
+                file_record=convert_to_record(
+                    file_result,
+                    file_size=file_size,
+                    extension=extension,
+                    error_message=error_message,
+                ),
             )
 
             if was_inserted:
@@ -105,7 +138,7 @@ def scan_files(config: ScannerConfig, conn: sqlite3.Connection) -> None:
     print(f"  Total files in database: {total_in_db}")
 
 
-def _crawl_directory(
+def _crawl_directory_old(
     root: Path,
     extensions: list[str],
     case_sensitive: bool,
@@ -113,6 +146,80 @@ def _crawl_directory(
     skip_dirs: list[str],
     skip_files: list[str],
 ) -> Iterator[Path]:
+    """Crawl a directory tree for files matching given extensions.
+
+    Does NOT follow symlinks.
+    Skips directories whose names appear in the skip_dirs list.
+    Skips files whose names ap
+    file_name: str
+    rel_path: str
+    extension: str
+    file_size: int | None
+    is_included: bool
+    is_found: bool | None
+    is_error: bool | None
+    error_message: strpear in the skip_files list.
+
+    Args:
+        root: The resolved root directory to crawl.
+        extensions: List of file extensions with dots (e.g., [".jpg"]).
+        case_sensitive: Whether extension matching is case sensitive.
+        recursive: Whether to descend into subdirectories.
+        skip_dirs: List of directory names to skip.
+
+    Yields:
+        Absolute Path objects for each matching file.
+    """
+    skip_set: set[str] = set(skip_dirs)
+    ext_set: set[str] = set()
+    ext_wildcard = False
+
+    if len(extensions) == 1 and extensions[0] in [".*", "*"]:
+        ext_wildcard = True
+    elif case_sensitive:
+        ext_set = set(extensions)
+    else:
+        ext_set = {e.lower() for e in extensions}
+
+    for dirpath, dirnames, filenames in os.walk(str(root), followlinks=False):
+        # print(f"[DEBUG] Scan: {filename}")
+        # dirnames[:] = [d for d in dirnames if d not in skip_set]
+
+        for filename in filenames:
+            file_name = filename
+            file_ext: str = os.path.splitext(file_name)[1]
+            if not case_sensitive:
+                file_name = file_name.lower()
+                file_ext = file_ext.lower()
+
+            if file_name in skip_files:
+                continue
+
+            # print(f"[DEBUG] Scan: {filename}")
+            # if filename.startswith("."):
+            #     continue
+            if ext_wildcard:
+                # print(f"[DEBUG] Wildcard")
+                yield Path(dirpath) / filename
+            else:
+                # print(f"[DEBUG] Wildcard == False")
+                if not case_sensitive:
+                    file_ext = file_ext.lower()
+                if file_ext in ext_set:
+                    yield Path(dirpath) / filename
+
+        if not recursive:
+            dirnames.clear()
+
+
+def _crawl_directory(
+    root: Path,
+    extensions: list[str],
+    case_sensitive: bool,
+    recursive: bool,
+    skip_dirs: list[str],
+    skip_files: list[str],
+) -> Iterator[FileResult]:
     """Crawl a directory tree for files matching given extensions.
 
     Does NOT follow symlinks.
@@ -141,9 +248,11 @@ def _crawl_directory(
         ext_set = {e.lower() for e in extensions}
 
     for dirpath, dirnames, filenames in os.walk(str(root), followlinks=False):
-        dirnames[:] = [d for d in dirnames if d not in skip_set]
-
+        dirnames[:] = [d for d in dirnames]
         for filename in filenames:
+            dir_name = Path(dirpath).name
+            is_included = True if dir_name not in skip_set else False
+            full_path = Path(dirpath) / filename
             file_name = filename
             file_ext: str = os.path.splitext(file_name)[1]
             if not case_sensitive:
@@ -151,20 +260,31 @@ def _crawl_directory(
                 file_ext = file_ext.lower()
 
             if file_name in skip_files:
-                continue
+                is_included = False
 
-            # print(f"[DEBUG] Scan: {filename}")
-            # if filename.startswith("."):
-            #     continue
+            # if exclude_hidden and filename.startswith("."):
+            #     is_included = False
+            # elif ...
+
             if ext_wildcard:
                 # print(f"[DEBUG] Wildcard")
-                yield Path(dirpath) / filename
+                is_included = True
             else:
                 # print(f"[DEBUG] Wildcard == False")
                 if not case_sensitive:
                     file_ext = file_ext.lower()
-                if file_ext in ext_set:
-                    yield Path(dirpath) / filename
+                if file_ext not in ext_set:
+                    is_included = False
+
+            yield FileResult(
+                path=full_path,
+                file_name=filename,
+                rel_path=str(full_path.relative_to(root)),
+                extension=file_ext,
+                file_size=None,
+                is_included=is_included,
+                is_found=False,
+            )
 
         if not recursive:
             dirnames.clear()

@@ -1,7 +1,21 @@
 """SQLite database operations for raw-deduplicator_v2."""
 
 import sqlite3
+import dataclasses
 from pathlib import Path
+
+
+@dataclasses.dataclass(frozen=True)
+class FileRecord:
+    path: Path
+    file_name: str
+    rel_path: str
+    extension: str
+    file_size: int | None
+    is_included: bool
+    is_found: bool | None
+    is_error: bool | None
+    error_message: str
 
 
 def open_database(db_path: Path) -> sqlite3.Connection:
@@ -53,7 +67,24 @@ def _create_schema(conn: sqlite3.Connection) -> None:
     conn.execute("CREATE INDEX IF NOT EXISTS idx_files_is_error ON files (is_error)")
     conn.commit()
 
-# TODO: pass in new params
+
+def insert_file_record(
+    conn: sqlite3.Connection,
+    file_record: FileRecord,
+) -> bool:
+    return insert_file(
+        conn=conn,
+        filename=file_record.file_name,
+        rel_path=file_record.rel_path,
+        extension=file_record.extension,
+        file_size=file_record.file_size,
+        is_included=file_record.is_included,
+        is_found=file_record.is_found,
+        is_error=file_record.is_error,
+        error_message=file_record.error_message,
+    )
+
+
 # TODO: update here too for found, included, error, size? Or as separate op?
 def insert_file(
     conn: sqlite3.Connection,
