@@ -102,6 +102,7 @@ def scan_files(config: ScannerConfig, conn: sqlite3.Connection) -> None:
             if not config.case_sensitive:
                 extension = extension.lower()
 
+            #TODO: switch for not stat on skipped files?
             try:
                 file_size: int = file_path.stat().st_size
             except OSError as err:
