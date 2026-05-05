@@ -252,7 +252,7 @@ def _crawl_directory(
         dirnames[:] = [d for d in dirnames]
         for filename in filenames:
             dir_name = Path(dirpath).name
-            is_included = True if dir_name not in skip_set else False
+            is_included = False if dir_name in skip_set else True
             full_path = Path(dirpath) / filename
             file_name = filename
             file_ext: str = os.path.splitext(file_name)[1]
