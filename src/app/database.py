@@ -123,7 +123,7 @@ def insert_file(
         )
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """,
-        (filename, rel_path, extension, file_size, is_included, is_found, is_error, error_message),
+        (filename, rel_path, extension, file_size, str(is_included), is_found, is_error, error_message),
     )
     return cursor.rowcount > 0
 
