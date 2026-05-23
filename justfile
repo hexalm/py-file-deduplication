@@ -217,6 +217,23 @@ code-audit:
     @printf "\033[0;32m✓ No known vulnerabilities found\033[0m\n"
     @printf "\n"
 
+# Delete the database (requires typing 'destroy' to confirm)
+[group('resetdb')]
+reset_db:
+    @printf "\n"
+    @printf "\033[0;31m=== Database Reset ===\033[0m\n"
+    @printf "\n"
+    @./scripts/reset-db.sh
+    @printf "\n"
+
+# Run new unit tests only
+[group('testnew')]
+test_new:
+    @printf "\n"
+    @printf "\033[0;34m=== Running New Unit Tests ===\033[0m\n"
+    @uv run pytest tests/test_new.py -v
+    @printf "\n"
+
 # Run unit tests only (fast)
 [group('test')]
 test:

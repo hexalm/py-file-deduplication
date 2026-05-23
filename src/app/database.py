@@ -143,6 +143,20 @@ def count_total_files(conn: sqlite3.Connection) -> int:
     return row[0]
 
 
+def count_file_conditional(conn: sqlite3.Connection, condition: str) -> int:
+    """Count the total number of files in the database.
+
+    Args:
+        conn: An open SQLite connection.
+
+    Returns:
+        The total number of file records.
+    """
+    cursor: sqlite3.Cursor = conn.execute(f"SELECT COUNT(*) FROM files WHERE {condition}")
+    row: tuple[int] = cursor.fetchone()
+    return row[0]
+
+
 def count_excluded_files(conn: sqlite3.Connection) -> int:
     """Count the total number of excluded files in the database.
 
@@ -152,7 +166,7 @@ def count_excluded_files(conn: sqlite3.Connection) -> int:
     Returns:
         The total number of file records.
     """
-    cursor: sqlite3.Cursor = conn.execute("SELECT COUNT(*) FROM files WHERE is_included = 0")
+    cursor: sqlite3.Cursor = conn.execute("SELECT COUNT(*) FROM files WHERE is_included = 'FALSE'")
     row: tuple[int] = cursor.fetchone()
     return row[0]
 
