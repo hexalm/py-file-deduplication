@@ -231,7 +231,15 @@ reset_db:
 test_new:
     @printf "\n"
     @printf "\033[0;34m=== Running New Unit Tests ===\033[0m\n"
-    @uv run pytest tests/test_new.py -v
+    @uv run pytest tests/test_new.py -vv
+    @printf "\n"
+
+# Run new unit tests only
+[group('testnew')]
+test_included:
+    @printf "\n"
+    @printf "\033[0;34m=== Running New Unit Tests ===\033[0m\n"
+    @uv run pytest tests/test_included_flag.py -v
     @printf "\n"
 
 # Run unit tests only (fast)

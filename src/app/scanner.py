@@ -160,6 +160,103 @@ def scan_files(config: ScannerConfig, conn: sqlite3.Connection) -> None:
     print(f"  Total files in database: {total_in_db}")
 
 
+def test_crawl(
+    root: str,
+    extensions: list[str],
+    case_sensitive: bool,
+    recursive: bool,
+    skip_dirs: list[str],
+    skip_files: list[str],
+) -> None:
+    # print("[DEBUG]:", root)
+    crawl = _test_crawl(
+        root=(root),
+        extensions=extensions,
+        case_sensitive=case_sensitive,
+        recursive=recursive,
+        skip_dirs=skip_dirs,
+        skip_files=skip_files,
+    )
+
+    # res = []
+    for f in crawl:
+        st = ' | '.join(["FileResult: ", str(f.is_included), f.file_name, f.rel_path])
+        print(st)
+        # res.append(st)
+
+    # return res
+
+
+def _test_crawl(
+    root: Path,
+    extensions: list[str],
+    case_sensitive: bool,
+    recursive: bool,
+    skip_dirs: list[str],
+    skip_files: list[str],
+) -> Iterator[FileResult]:
+
+    skip_set: set[str] = set(skip_dirs)
+    ext_set: set[str] = set()
+    ext_wildcard = False
+
+    if len(extensions) == 1 and extensions[0] in [".*", "*"]:
+        ext_wildcard = True
+    elif case_sensitive:
+        ext_set = set(extensions)
+    else:
+        ext_set = {e.lower() for e in extensions}
+
+    print(f"[DEBUG]: c r a w l")
+    print(f"[DEBUG]: root = {root}")
+
+    for dirpath, dirnames, filenames in os.walk(str(root), followlinks=False):
+        current_path = Path(dirpath)
+
+        # Check if any parent directory under root scan directory is in skip_set
+        skip_current = False
+        parents_in_root = [p for p in list(current_path.parents) if str(p).startswith(str(root))]
+        for parent in parents_in_root + [current_path]:
+            # print(f"[DEBUG]: {parent}")
+            # Skip root directory check if name is empty
+            if parent.name and parent.name in skip_set:
+                skip_current = True
+                break
+
+        for filename in filenames:
+            # print(f"[DEBUG]: {filename}")
+
+            # Set inclusion flag based on dir skip status
+            is_included = not skip_current
+            full_path = Path(dirpath) / filename
+            file_name = filename
+            file_ext: str = os.path.splitext(file_name)[1]
+            if not case_sensitive:
+                file_name = file_name.lower()
+                file_ext = file_ext.lower()
+
+            if ext_wildcard and not skip_current:
+                is_included = True
+                # print(f"[DEBUG]: wildcard is_included = {is_included}")
+            elif file_ext not in ext_set:
+                is_included = False
+
+            if file_name in skip_files:
+                is_included = False
+
+            # print(f"[DEBUG]: final is_included = {is_included}")
+
+            yield FileResult(
+                path=full_path,
+                file_name=filename,
+                rel_path=str(full_path.relative_to(root)),
+                extension=file_ext,
+                file_size=None,
+                is_included=is_included,
+                is_found=False,
+            )
+
+
 def _crawl_directory(
     root: Path,
     extensions: list[str],
@@ -202,7 +299,10 @@ def _crawl_directory(
             # print(f"[DEBUG] {filename}")
             dir_name = Path(dirpath).name
             # print(f"[DEBUG] {dir_name}")
-            is_included = False if dir_name in skip_set else True
+            is_included = True
+            if dir_name in skip_set:
+                is_included = False
+
             full_path = Path(dirpath) / filename
             file_name = filename
             file_ext: str = os.path.splitext(file_name)[1]
@@ -210,7 +310,7 @@ def _crawl_directory(
                 file_name = file_name.lower()
                 file_ext = file_ext.lower()
 
-            if ext_wildcard and is_included:
+            if ext_wildcard and not is_included:
                 # print(f"[DEBUG] Wildcard")
                 is_included = True
             else:
